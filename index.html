@@ -126,7 +126,7 @@ const S = {
     {x:24,y:176,w:342,h:80, act:()=>{variant='A'; go('ios','fade')}},
     {x:24,y:280,w:342,h:80, act:()=>{variant='B'; go('ios','fade')}},
   ]},
-  ios: { light:true, img:'ios.jpg', cut:[[470, 194]], soft:true, bar:'light', hot:[
+  ios: { light:true, img:'ios.jpg', cut:[[470, 194]], grow:610, soft:true, bar:'light', hot:[
     {x:296,y:262,w:64,h:64, r:16, go:'home', t:'zoom'},
     {x:208,y:262,w:64,h:64, r:16, go:'wEmpty', t:'zoom'},
     {x:30, y:362,w:64,h:64, r:16, go:'test', t:'fade'},
@@ -236,10 +236,11 @@ const TOP = v => px(v - sbCut());   // y of things above any collapsible band (s
 function plan(d){   // which empty bands to collapse so the screen fits VH
   const sb = sbCut(), out = sb ? [{y:0, len:sb}] : [];
   let left = d.h ? 0 : Math.max(0, 844 - sb - VH);
+  if (!d.h && VH > 844 && d.cut && d.cut.length){ out.push({y:d.grow ?? d.cut[0][0], len:844 - VH}); return out; } // negative = insert
   for (const [y, max] of (d.cut||[])){ const len = Math.min(max, left); if (len>0){ out.push({y, len}); left -= len; } }
   return out;
 }
-function mapper(p){ return y => { let o = y; for (const c of p){ if (y >= c.y + c.len) o -= c.len; else if (y > c.y) o -= (y - c.y); } return o; }; }
+function mapper(p){ return y => { let o = y; for (const c of p){ if (c.len < 0){ if (y >= c.y) o -= c.len; } else if (y >= c.y + c.len) o -= c.len; else if (y > c.y) o -= (y - c.y); } return o; }; }
 const boxM = o => ({left:px(o.x),top:px(MAP(o.y)),width:px(o.w),height:px(o.h)});
 function art(src, p, H, soft, srcH = 844){ // the screen image with the collapsed bands cut out
   if (!p.length){ const i = el('img','art'); i.src = A+src; i.alt=''; i.draggable=false; return i; }
@@ -248,6 +249,18 @@ function art(src, p, H, soft, srcH = 844){ // the screen image with the collapse
   if (soft) w.appendChild(el('div','',{position:'absolute',inset:0,background:`url(${A}${src}) 0 ${-(p[0]&&p[0].y===0?p[0].len:0)*H/srcH}px/390px ${H}px no-repeat`}));
   const segs = [...p, {y:srcH, len:0}];
   segs.forEach((c, i)=>{
+    if (c.len < 0){ // taller phone: stretch the empty row at this point to fill the extra height
+      if (c.y > from){
+        const top = el('div','',{position:'relative',height:px(c.y-from),background:`url(${A}${src}) 0 ${-from}px/390px ${srcH}px no-repeat`});
+        if (soft) top.style.maskImage = top.style.webkitMaskImage = 'linear-gradient(#000 calc(100% - 28px), transparent)';
+        w.appendChild(top);
+      }
+      const fh = -c.len;
+      // photo wallpapers: leave a gap so the stretched copy underneath shows; flat screens: repeat the empty row
+      w.appendChild(el('div','',{position:'relative',height:px(fh),
+        background: soft ? 'none' : `url(${A}${src}) 0 ${-c.y*fh}px/390px ${srcH*fh}px no-repeat`}));
+      from = c.y; return;
+    }
     if (c.y - from <= 0){ from = c.y + c.len; return; }
     const seg = el('div','',{position:'relative',height:px(c.y-from),background:`url(${A}${src}) 0 ${-from}px/390px ${srcH}px no-repeat`});
     if (soft){
@@ -542,14 +555,16 @@ addEventListener('keydown',e=>{
 });
 
 function fit(){
-  if (!innerWidth || !innerHeight) return;
+  // measure the full-screen stage, not innerHeight (iOS Home Screen apps report it short by the status bar)
+  const r = document.querySelector('.stage').getBoundingClientRect();
+  const W = r.width || innerWidth, Hs = r.height || innerHeight;
+  if (!W || !Hs) return;
   let s, vh = 844;
-  const phone = innerWidth <= 600;
+  const phone = W <= 600;
   if (phone !== PHONE){ PHONE = phone; VH = -1; }
-  if (phone){ // phone: fill the width edge to edge; collapse empty bands to fit the height
-    s = innerWidth/390; vh = Math.round(innerHeight/s);
-    if (vh > 844){ s = innerHeight/844; vh = 844; }
-  } else s = Math.min(innerWidth/390, innerHeight/844);
+  if (phone){ // phone: fill the screen edge to edge; empty bands shrink or grow to fit the height
+    s = W/390; vh = Math.round(Hs/s);
+  } else s = Math.min(W/390, Hs/844);
   document.documentElement.style.setProperty('--s', s);
   document.documentElement.style.setProperty('--vh', vh);
   if (vh !== VH){ VH = vh; relayout(); }
@@ -558,7 +573,7 @@ function relayout(){ // rebuild the visible screen for the new height
   const cur = stack[stack.length-1]; if (!cur || !cur.el || busy) return;
   const n = build(cur.id); cur.el.replaceWith(n); cur.el = n; device.appendChild(hb);
 }
-addEventListener('resize',fit); fit();
+addEventListener('resize',fit); window.visualViewport?.addEventListener('resize',fit); fit();
 
 // preload every asset so transitions never wait on the network
 Object.values(S).forEach(d=>{ const v=val(d.img); if(v) new Image().src=A+v; });
