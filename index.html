@@ -325,12 +325,7 @@ function build(id){
   }
   const img = art(val(d.img), P, H, d.soft, d.h || 844); L.appendChild(img);
   if (d.stackOn) img.style.clipPath = `inset(${TOP(62)} 0 0 0)`; // keep only the front sheet from the export
-  if (PHONE && !d.sheet){ // the phone shows its own clock/battery over this strip
-    // Home Screen mode forces white status text, invisible on light screens: keep the mock icons there
-    // and swap in a live clock; everywhere else hide the mock bar and let the real one show through
-    if (STANDALONE && !d.light) L.appendChild(liveClock(val(d.img)));
-    else L.appendChild(statusMask(val(d.img), d.h || 844));
-  }
+  if (PHONE && !d.sheet) L.appendChild(statusMask(val(d.img), d.h || 844)); // the phone shows its own clock/battery here
   if (val(d.nav)) { // floating bottom navigation stays put while the page scrolls
     const blur = el('div','ov',{left:0,top:px(VH-84),width:'390px',height:'84px',zIndex:5,
       backdropFilter:'blur(14px)',webkitBackdropFilter:'blur(14px)',
