@@ -1,0 +1,558 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="robots" content="noindex,nofollow">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<title>TrueMoney Apple Pay Prototype</title>
+<style>
+:root{
+  --bg:#ececef; --panel:#ffffff; --ink:#1c1c1e; --muted:#6e6e73; --line:#d9d9de;
+  --accent:#ff5a00; --chip:#f4f4f6;
+  --ease:cubic-bezier(.32,.72,0,1);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){ --bg:#111113; --panel:#1c1c1f; --ink:#f2f2f4; --muted:#9a9aa2; --line:#2c2c31; --chip:#26262a; }
+}
+:root[data-theme="dark"]{ --bg:#111113; --panel:#1c1c1f; --ink:#f2f2f4; --muted:#9a9aa2; --line:#2c2c31; --chip:#26262a; }
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);
+  font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue","Noto Sans Thai",sans-serif;overflow:hidden}
+.stage{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#000}
+.bar,.hint{display:none!important}
+.bar{display:flex;gap:6px;flex-wrap:wrap;justify-content:center;align-items:center}
+.chip{border:1px solid var(--line);background:var(--panel);color:var(--ink);font:500 13px/1 inherit;font-family:inherit;
+  padding:8px 12px;border-radius:999px;cursor:pointer;transition:background .2s,border-color .2s}
+.chip:hover{border-color:var(--muted)}
+.chip.on{background:var(--ink);color:var(--panel);border-color:var(--ink)}
+.sep{width:1px;height:20px;background:var(--line);margin:0 4px}
+.hint{font-size:12px;color:var(--muted);text-align:center}
+
+/* phone */
+.device-wrap{position:relative;width:calc(390px * var(--s));height:calc(var(--vh,844) * var(--s) * 1px);flex:none}
+.device{position:absolute;left:0;top:0;width:390px;height:calc(var(--vh,844) * 1px);transform:scale(var(--s));transform-origin:0 0;
+  overflow:hidden;background:#000;isolation:isolate}
+.screen{position:absolute;inset:0;overflow:hidden;background:#fff;will-change:transform}
+.screen .scroll{position:absolute;inset:0;overflow-y:auto;overflow-x:hidden;scrollbar-width:none;overscroll-behavior:contain}
+.screen .scroll::-webkit-scrollbar{display:none}
+.screen .canvas{position:relative;width:390px}
+.screen img.art{display:block;width:390px;user-select:none;-webkit-user-drag:none;pointer-events:none}
+.hot{position:absolute;cursor:pointer;border-radius:12px;transition:background .15s}
+.hot:active{background:rgba(0,0,0,.07)}
+.hot.key:active{background:transparent}
+.flash .hot{animation:flash .7s ease}
+@keyframes flash{0%,100%{background:transparent;box-shadow:none}30%{background:rgba(0,122,255,.18);box-shadow:inset 0 0 0 2px rgba(0,122,255,.7)}}
+.keyfx{position:absolute;border-radius:10px;background:rgba(0,0,0,.12);pointer-events:none;opacity:0;transition:opacity .25s}
+.keyfx.on{opacity:1;transition:none}
+.dot{position:absolute;pointer-events:none;background-repeat:no-repeat;opacity:0;transform:scale(.4);
+  transition:opacity .16s ease,transform .32s cubic-bezier(.34,1.56,.64,1)}
+.dot.on{opacity:1;transform:scale(1)}
+.shake{animation:shake .4s}
+@keyframes shake{20%,60%{transform:translateX(-8px)}40%,80%{transform:translateX(8px)}}
+.ov{position:absolute;pointer-events:none}
+.spin{animation:spin .9s steps(8) infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.pop{background:#fff;overflow:hidden}
+.pop>div{width:100%;height:100%;background-repeat:no-repeat;animation:pop .6s cubic-bezier(.34,1.56,.64,1) both .1s}
+@keyframes pop{from{transform:scale(.3);opacity:0}to{transform:scale(1);opacity:1}}
+.dim{position:absolute;inset:0;background:#000;pointer-events:none;opacity:0}
+.sdim{position:absolute;inset:0;background:#000;opacity:.4;pointer-events:none}
+.sheetL{position:absolute;inset:0}
+.backL{position:absolute;inset:0;transform-origin:50% 0}
+.backDim{position:absolute;left:0;right:0;top:62px;bottom:0;border-radius:38px 38px 0 0;background:#000;opacity:.11}
+.under{position:absolute;left:0;top:0}
+.homebar{position:absolute;left:50%;bottom:8px;width:134px;height:5px;margin-left:-67px;border-radius:3px;background:rgba(0,0,0,.85);z-index:50;cursor:pointer}
+.homebar.light{background:rgba(255,255,255,.9)}
+.homebar::before{content:"";position:absolute;inset:-14px -20px}
+
+@media (max-width:520px){
+  .stage{padding:0;gap:0;justify-content:flex-start}
+  .bar,.hint{display:none}
+  .device{box-shadow:none;border-radius:0}
+}
+.fs{position:fixed;right:16px;bottom:16px;z-index:100;width:40px;height:40px;border-radius:12px;border:0;cursor:pointer;
+  background:rgba(255,255,255,.14);color:#fff;display:none;align-items:center;justify-content:center;
+  -webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);transition:opacity .2s}
+.fs:hover{background:rgba(255,255,255,.24)}
+.fs.show{display:flex}
+:fullscreen .fs{opacity:0}
+:fullscreen .fs:hover{opacity:1}
+</style>
+</head>
+<body>
+<button class="fs" id="fs" title="เต็มจอ" aria-label="เต็มจอ">
+  <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M1 6V1h5M12 1h5v5M17 12v5h-5M6 17H1v-5"/></svg>
+</button>
+<div class="stage">
+  <div class="bar" id="bar">
+    <button class="chip" data-start="A">Option A · ชั้นสีส้ม</button>
+    <button class="chip" data-start="B">Option B · ชั้นสีดำ</button>
+    <button class="chip" data-start="W">Apple Wallet</button>
+    <span class="sep"></span>
+    <button class="chip" id="restart">↺ เริ่มใหม่</button>
+  </div>
+  <div class="device-wrap" id="wrap"><div class="device" id="device"></div></div>
+  <div class="hint">แตะบนหน้าจอเพื่อใช้งาน · แตะพื้นที่ว่างเพื่อดูจุดที่กดได้ · ← / Esc ย้อนกลับ</div>
+</div>
+
+<script>
+const A = 'assets/';
+// Frame-level coordinates are in Figma points (390×844).
+const PIN_KEYS = (cols, rows, w, h) => {
+  const keys = [];
+  const map = [['1','2','3'],['4','5','6'],['7','8','9'],[null,'0','del']];
+  map.forEach((r,ri)=>r.forEach((k,ci)=>{ if(k) keys.push({k, x:cols[ci]-w/2, y:rows[ri]-h/2, w, h}); }));
+  return keys;
+};
+const APP_PIN = {
+  keys: PIN_KEYS([67,195,323],[582,636,690,744],122,46),
+  dots: [95,135,175,215,255,295].map(cx=>({x:cx-15,y:178,w:30,h:30})),
+  filled: 'pin-filled.jpg'
+};
+const WAL_PIN = {
+  keys: PIN_KEYS([69,195,320],[567,634,702,771],112,58),
+  dots: [55,111,166,222,278,333].map(cx=>({x:cx-23,y:367,w:46,h:46})),
+  filled: 'w03.png'
+};
+
+let variant = 'A';
+let walletBase = 'w-empty.jpg';   // the Wallet page shown behind the sheets
+const closeWallet = ()=>go(walletBase==='w-added.jpg'?'wAdded':'wEmpty','sheetDown',{reset:[]});
+const S = {
+  test: { img:'test.jpg', cut:[[450, 380]], bar:'dark', hot:[
+    {x:24,y:176,w:342,h:80, act:()=>{variant='A'; go('ios','fade')}},
+    {x:24,y:280,w:342,h:80, act:()=>{variant='B'; go('ios','fade')}},
+  ]},
+  ios: { img:'ios.jpg', cut:[[470, 194]], soft:true, bar:'light', hot:[
+    {x:296,y:262,w:64,h:64, r:16, go:'home', t:'zoom'},
+    {x:208,y:262,w:64,h:64, r:16, go:'wEmpty', t:'zoom'},
+    {x:30, y:362,w:64,h:64, r:16, go:'test', t:'fade'},
+  ]},
+  home: { img:()=> variant==='B' ? 'homeB-long.jpg' : 'homeA-long.jpg', h:2565, nav:true, bar:'dark', hot:[
+    {x:208,y:118,w:74,h:66, go:'intro', t:'push'},
+    {x:22, y:396,w:80,h:80, go:'intro', t:'push'},
+    {x:16, y:626,w:358,h:94, r:16, go:'intro', t:'push'},
+    {x:340,y:58, w:40,h:40, go:'test', t:'fade'},
+  ]},
+  intro: { img:'introA.jpg', cut:[[725, 115]], bar:'dark', hot:[
+    {x:8,y:58,w:44,h:40, back:true},
+    {x:32,y:473,w:326,h:48, r:24, go:'pin', t:'sheet'},
+  ]},
+  pin: { img:'pin.jpg', cut:[[235, 310]], bar:'dark', pin:APP_PIN, onPin:()=>go('offapp','sheet',{replace:true}), hot:[
+    {x:336,y:56,w:48,h:46, back:true},
+  ]},
+  offapp: { img:'offapp.jpg', cut:[[790, 50]], pinBottom:725, bar:'dark', hot:[
+    {x:8,y:56,w:80,h:34, back:true},
+    {x:21,y:737,w:348,h:44, r:12, go:'ap1', t:'push'},
+  ]},
+  ap1: { img:'ap1.jpg', cut:[[410, 420]], bar:'dark', hot:[
+    {x:8,y:60,w:90,h:34, back:true},
+    {x:0,y:292,w:390,h:56, r:0, go:'ap2', t:'push'},
+    {x:0,y:348,w:390,h:56, r:0, go:'ap2', t:'push'},
+  ]},
+  ap2: { img:'ap2.jpg', cut:[[225, 600]], bar:'dark', hot:[
+    {x:8,y:60,w:90,h:34, back:true},
+    {x:316,y:60,w:66,h:34, go:'adding', t:'push'},
+  ]},
+  adding: { img:'adding.jpg', cut:[[205, 600]], bar:'dark', auto:[2200, ()=>go('loading','down',{reset:['home','intro']})],
+    ov:[{gif:'adding-spinner.gif', x:292.5,y:114.5,w:24,h:24}] },
+  loading: { img:'loading.jpg', cut:[[490, 330]], bar:'dark', auto:[2600, ()=>go('success','fade',{replace:true})],
+    ov:[{gif:'loading-spinner.gif', x:74.5,y:230,w:240,h:180}] },
+  success: { img:'success.jpg', cut:[[420, 310]], bar:'dark', pop:{x:75,y:122,w:240,h:180}, hot:[
+    {x:8,y:58,w:44,h:40, act:()=>go('homeAfter','pop',{reset:[]})},
+    {x:16,y:762,w:358,h:48, r:24, act:()=>go('provisioned','push',{reset:['homeAfter']})},
+  ]},
+  provisioned: { img:'provisioned.jpg', h:1040, bar:'dark', hot:[
+    {x:8,y:58,w:44,h:40, back:true},
+  ]},
+  homeAfter: { img:'homeAfter-long.jpg', h:2525, nav:true, bar:'dark', hot:[
+    {x:208,y:118,w:74,h:66, go:'provisioned', t:'push'},
+    {x:22, y:396,w:80,h:80, go:'provisioned', t:'push'},
+    {x:16, y:626,w:358,h:56, r:16, go:'provisioned', t:'push'},
+    {x:340,y:58, w:40,h:40, go:'test', t:'fade'},
+  ]},
+
+  // ——— Apple Wallet (in-wallet provisioning) ———
+  wEmpty: { img:'w-empty.jpg', cut:[[600, 230]], bar:'dark', hot:[
+    {x:212,y:70,w:48,h:48, r:24, act:()=>{walletBase='w-empty.jpg'; go('w01','sheetUp')}},
+    {x:276,y:70,w:96,h:48, r:24, act:()=>go('test','fade',{reset:[]})},
+  ]},
+  w01: { img:'w01.png', cut:[[560, 270]], sheet:true, bar:'dark', hot:[
+    {x:16,y:78,w:44,h:44, r:22, act:closeWallet},
+    {x:17,y:495,w:356,h:59, r:18, go:'w02', t:'sheetUp'},
+  ]},
+  w02: { img:'w02.png', cut:[[130, 80], [420, 110]], sheet:true, stackOn:'w01', bar:'dark', pin:WAL_PIN, onPin:()=>go('w04','sheetDown',{replace:true}), hot:[
+    {x:16,y:78,w:44,h:44, r:22, back:true, t:'sheetDown'},
+  ]},
+  w04: { img:'w04.png', cut:[[560, 270]], sheet:true, bar:'dark', auto:[650, ()=>go('w05','sheetPush',{replace:true})] },
+  w05: { img:'w05.png', cut:[[320, 290]], sheet:true, bar:'dark', hot:[
+    {x:16,y:78,w:44,h:44, r:22, act:closeWallet},
+    {x:17,y:762,w:356,h:48, r:24, go:'w06', t:'sheetPush'},
+  ]},
+  w06: { img:'w06.png', cut:[[440, 250]], sheet:true, bar:'dark', hot:[
+    {x:16,y:78,w:44,h:44, r:22, back:true, t:'sheetPop'},
+    {x:16,y:698,w:358,h:50, r:25, go:'w07', t:'fade'},
+    {x:16,y:762,w:358,h:50, r:25, act:closeWallet},
+  ]},
+  w07: { img:'w07.png', cut:[[440, 250]], sheet:true, bar:'dark', auto:[2000, ()=>go('w08','sheetUp',{replace:true})],
+    ov:[{spin:true, x:183,y:711,w:24,h:24}] },
+  w08: { img:'w08.png', cut:[[420, 300]], sheet:true, stackOn:'w07', bar:'dark', hot:[
+    {x:285,y:762,w:89,h:50, r:25, act:()=>go('w09','sheetDown',{replace:true})},
+    {x:16,y:762,w:113,h:50, r:25, act:()=>go('w06','sheetDown',{replace:true})},
+  ]},
+  w09: { img:'w09.png', cut:[[440, 250]], sheet:true, bar:'dark', auto:[2000, ()=>go('w10','fade',{replace:true})],
+    ov:[{spin:true, x:183,y:711,w:24,h:24}] },
+  w10: { img:'w10.png', cut:[[440, 250]], sheet:true, bar:'dark', ov:[{gif:'w10-check.gif', x:238,y:234.5,w:32,h:32, once:true}], auto:[2300, ()=>go('wAdded','sheetDown',{reset:[]})] },
+  wAdded: { img:'w-added.jpg', cut:[[370, 460]], bar:'dark', hot:[
+    {x:16,y:138,w:358,h:226, r:16, go:'wDetail', t:'fade'},
+    {x:212,y:70,w:48,h:48, r:24, act:()=>{walletBase='w-added.jpg'; go('w01','sheetUp')}},
+    {x:276,y:70,w:96,h:48, r:24, act:()=>go('test','fade',{reset:[]})},
+  ]},
+  wDetail: { img:'w-detail.jpg', cut:[[370, 460]], bar:'dark', hot:[
+    {x:18,y:70,w:48,h:48, r:24, back:true, t:'fade'},
+  ]},
+};
+
+// ——— runtime ———
+const device = document.getElementById('device');
+let stack = [];          // [{id, el}]
+let busy = false, timers = [];
+let VH = 844;           // logical viewport height in Figma points
+const BACK_OF = { push:'pop', sheet:'unsheet', sheetUp:'sheetDown', sheetPush:'sheetPop', zoom:'fade', fade:'fade', down:'fade' };
+
+function el(tag, cls, css){ const e=document.createElement(tag); if(cls) e.className=cls; if(css) Object.assign(e.style,css); return e; }
+const px = v => v+'px';
+const box = o => ({left:px(o.x),top:px(o.y),width:px(o.w),height:px(o.h)});
+let MAP = y => y;   // Figma y → on-screen y for the screen being built
+const SB = 47;       // height of the mock iOS status bar baked into every screen
+let PHONE = false;  // on a real phone the device shows its own clock/battery, so the mock bar is dropped
+const sbCut = () => PHONE ? Math.min(SB, Math.max(0, 844 - VH)) : 0;  // only as much as the screen is short
+const TOP = v => px(v - sbCut());   // y of things above any collapsible band (sheet tops)
+function plan(d){   // which empty bands to collapse so the screen fits VH
+  const sb = sbCut(), out = sb ? [{y:0, len:sb}] : [];
+  let left = d.h ? 0 : Math.max(0, 844 - sb - VH);
+  for (const [y, max] of (d.cut||[])){ const len = Math.min(max, left); if (len>0){ out.push({y, len}); left -= len; } }
+  return out;
+}
+function mapper(p){ return y => { let o = y; for (const c of p){ if (y >= c.y + c.len) o -= c.len; else if (y > c.y) o -= (y - c.y); } return o; }; }
+const boxM = o => ({left:px(o.x),top:px(MAP(o.y)),width:px(o.w),height:px(o.h)});
+function art(src, p, H, soft, srcH = 844){ // the screen image with the collapsed bands cut out
+  if (!p.length){ const i = el('img','art'); i.src = A+src; i.alt=''; i.draggable=false; return i; }
+  const w = el('div','art',{position:'relative',width:'390px',height:px(H),pointerEvents:'none'}); let from = 0;
+  // soft: a squeezed copy underneath and feathered slice edges hide the seam (for photo wallpapers)
+  if (soft) w.appendChild(el('div','',{position:'absolute',inset:0,background:`url(${A}${src}) 0 ${-(p[0]&&p[0].y===0?p[0].len:0)*H/srcH}px/390px ${H}px no-repeat`}));
+  const segs = [...p, {y:srcH, len:0}];
+  segs.forEach((c, i)=>{
+    if (c.y - from <= 0){ from = c.y + c.len; return; }
+    const seg = el('div','',{position:'relative',height:px(c.y-from),background:`url(${A}${src}) 0 ${-from}px/390px ${srcH}px no-repeat`});
+    if (soft){
+      const top = i>0 && segs[i-1].y>0 ? 'transparent, #000 28px' : '#000, #000';
+      const bot = i<segs.length-1 ? '#000 calc(100% - 28px), transparent' : '#000, #000';
+      seg.style.maskImage = seg.style.webkitMaskImage = `linear-gradient(${top}), linear-gradient(${bot})`;
+      seg.style.maskComposite = 'intersect'; seg.style.webkitMaskComposite = 'source-in';
+    }
+    w.appendChild(seg); from = c.y + c.len;
+  });
+  return w;
+}
+const val = v => typeof v==='function' ? v() : v;
+
+function optionC(canvas){
+  // Extra entry on the test screen for the Wallet flow (styled like Option A/B)
+  const c = el('div','',{position:'absolute',left:'24px',top:'456px',width:'342px',height:'80px',borderRadius:'20px',
+    background:'#fafafa',border:'1px solid #ececec',padding:'18px 16px',cursor:'pointer',fontFamily:'inherit'});
+  c.innerHTML = '<div style="font:600 16px/1.3 inherit;color:#000">Option C</div><div style="font:14px/1.5 inherit;color:#222">เพิ่มบัตรจาก Apple Wallet</div>'+
+    '<svg width="10" height="18" viewBox="0 0 10 18" style="position:absolute;right:20px;top:31px"><path d="M1 1l8 8-8 8" fill="none" stroke="#8a8a8e" stroke-width="1.6"/></svg>';
+  c.onclick = ()=>go('ios','fade');
+  canvas.appendChild(c);
+}
+
+function build(id){
+  const d = S[id], P = plan(d), H = (d.h || 844) - P.reduce((a,c)=>a+c.len,0);
+  MAP = mapper(P);
+  const scr = el('div','screen'); scr.dataset.id=id;
+  const sc = el('div','scroll'); const cv = el('div','canvas',{height:px(H)});
+  let L = cv;
+  if (d.sheet){
+    const under = art(walletBase, P, H); under.classList.add('under'); cv.appendChild(under);
+    cv.appendChild(el('div','sdim'));
+    if (d.stackOn){ // the previous sheet stays live behind, pushed back like iOS stacked sheets
+      const bk = el('div','backL'); const bi = art(S[d.stackOn].img, P, H);
+      bk.style.transform = BACK_ON(); bk.appendChild(bi); bk.appendChild(el('div','backDim',{top:TOP(62)})); cv.appendChild(bk);
+    }
+    L = el('div','sheetL'); cv.appendChild(L);
+  }
+  const img = art(val(d.img), P, H, d.soft, d.h || 844); L.appendChild(img);
+  if (d.stackOn) img.style.clipPath = `inset(${TOP(62)} 0 0 0)`; // keep only the front sheet from the export
+  if (val(d.nav)) { // floating bottom navigation stays put while the page scrolls
+    const blur = el('div','ov',{left:0,top:px(VH-84),width:'390px',height:'84px',zIndex:5,
+      backdropFilter:'blur(14px)',webkitBackdropFilter:'blur(14px)',
+      maskImage:'linear-gradient(transparent,#000 45%)',webkitMaskImage:'linear-gradient(transparent,#000 45%)'});
+    const nav = el('img','ov',{left:0,top:px(VH-160),width:'390px',height:'160px',zIndex:6}); nav.src=A+'nav.png'; nav.alt='';
+    scr.appendChild(blur); scr.appendChild(nav);
+  }
+  (d.ov||[]).forEach(o=>{
+    if (o.spin){ // rotate the spinner already drawn in the screen itself, so it blends with the button
+      L.appendChild(el('div','ov spin',{...boxM(o),borderRadius:'50%',
+        background:`url(${A}${val(d.img)}) ${-o.x}px ${-o.y}px/390px 844px no-repeat`}));
+      return;
+    }
+    const g=el('img','ov',boxM(o)); g.src=A+o.gif+(o.once?'?t='+Date.now():''); L.appendChild(g); }); // once: replay from the first frame each visit
+  if (d.pop){ const p=el('div','ov pop',boxM(d.pop)); const i=el('div','',{background:`url(${A}${val(d.img)}) ${-d.pop.x}px ${-d.pop.y}px/390px 844px no-repeat`}); p.appendChild(i); cv.appendChild(p); }
+  // pinBottom: if the screen still overflows, keep its bottom action area fixed and let the rest scroll
+  let pinned = null;
+  if (d.pinBottom && H > VH){
+    const ph = 844 - d.pinBottom;
+    pinned = el('div','',{position:'absolute',left:0,top:px(VH-ph),width:'390px',height:px(ph),zIndex:4,
+      background:`url(${A}${val(d.img)}) 0 ${-d.pinBottom}px/390px 844px no-repeat`});
+    scr.appendChild(pinned); cv.style.height = px(d.pinBottom + 20);
+  }
+  (d.hot||[]).forEach(h=>{
+    const inPin = pinned && h.y >= d.pinBottom;
+    const b=el('div','hot',inPin ? box({...h, y:h.y-d.pinBottom}) : boxM(h)); if(h.r!=null) b.style.borderRadius=px(h.r);
+    b.addEventListener('click',e=>{ e.stopPropagation(); if(busy) return;
+      if(h.act) h.act(); else if(h.back) back(h.t); else go(h.go,h.t); });
+    (inPin ? pinned : L).appendChild(b);
+  });
+  if (d.pin) mountPin(L, d);
+  if (d.extra) d.extra(cv);
+  cv.addEventListener('click',()=>{ cv.classList.remove('flash'); void cv.offsetWidth; cv.classList.add('flash'); });
+  sc.appendChild(cv); scr.appendChild(sc);
+  return scr;
+}
+
+function mountPin(L, d){
+  const P = d.pin; let n = 0;
+  const dots = P.dots.map(r=>{ const e=el('div','dot',{...boxM(r),
+    background:`url(${A}${P.filled}) ${-r.x}px ${-r.y}px/390px 844px no-repeat`}); L.appendChild(e); return e; });
+  P.keys.forEach(k=>{
+    const fx=el('div','keyfx',boxM(k)); L.appendChild(fx);
+    const b=el('div','hot key',boxM(k));
+    b.addEventListener('pointerdown',()=>{ fx.classList.add('on'); });
+    const up=()=>fx.classList.remove('on'); b.addEventListener('pointerup',up); b.addEventListener('pointerleave',up);
+    b.addEventListener('click',e=>{ e.stopPropagation(); if(busy) return;
+      if(n>0) return;
+      const tick=()=>{ dots[n++].classList.add('on');
+        if(n<6) setTimeout(tick,70); else { busy=true; setTimeout(()=>{ busy=false; d.onPin(); }, 380); } };
+      tick();
+    });
+    L.appendChild(b);
+  });
+  L._pinKey = k => { const t=P.keys.find(x=>x.k===k); if(t) L.querySelectorAll('.hot.key')[P.keys.indexOf(t)].click(); };
+}
+
+function anim(e, frames, ms, ease){ return e.animate(frames,{duration:ms,easing:ease||'cubic-bezier(.32,.72,0,1)',fill:'both'}).finished; }
+
+const parts = s => ({under:s.querySelector('.under'), dim:s.querySelector('.sdim'), sheet:s.querySelector('.sheetL'),
+  back:s.querySelector('.backL'), backDim:s.querySelector('.backDim')});
+// receded sheet: 16pt above the front sheet, scaled to 374/390
+const BACK_ON = () => { const o = sbCut(); return `translateY(${(46 - o) - (62 - o) * .959}px) scale(.959)`; };
+function topBand(sheet){ // the strip above the sheet (e.g. the receded sheet behind) cross-fades instead of sliding
+  const t = sheet.cloneNode(true); t.style.clipPath=`inset(0 0 calc(100% - ${TOP(60)}) 0)`; t.style.pointerEvents='none'; sheet.after(t); return t;
+}
+function splitTop(scr, clip){ // returns a top-band clone used to cross-fade the dimmed backdrop area
+  const top = scr.cloneNode(true); top.style.clipPath=`inset(0 0 calc(100% - ${clip}px) 0)`; top.style.pointerEvents='none';
+  return top;
+}
+
+async function transition(from, to, t){
+  const D = device;
+  const ease = 'cubic-bezier(.32,.72,0,1)';
+  switch(t){
+    case 'push': {
+      D.appendChild(to); const dim=el('div','dim'); from.appendChild(dim);
+      await Promise.all([
+        anim(to,[{transform:'translateX(100%)',boxShadow:'0 0 30px rgba(0,0,0,.25)'},{transform:'translateX(0)',boxShadow:'0 0 30px rgba(0,0,0,0)'}],480,ease),
+        anim(from,[{transform:'translateX(0)'},{transform:'translateX(-30%)'}],480,ease),
+        anim(dim,[{opacity:0},{opacity:.12}],480,ease)]);
+      dim.remove(); break; }
+    case 'pop': {
+      D.insertBefore(to, from); const dim=el('div','dim'); to.appendChild(dim);
+      await Promise.all([
+        anim(from,[{transform:'translateX(0)'},{transform:'translateX(100%)'}],420,ease),
+        anim(to,[{transform:'translateX(-30%)'},{transform:'translateX(0)'}],420,ease),
+        anim(dim,[{opacity:.12},{opacity:0}],420,ease)]);
+      dim.remove(); break; }
+    case 'sheet': {
+      D.appendChild(to); const dim=el('div','dim'); from.appendChild(dim);
+      await Promise.all([
+        anim(to,[{transform:'translateY(100%)'},{transform:'translateY(0)'}],520,ease),
+        anim(from,[{transform:'scale(1)',borderRadius:'0px'},{transform:'scale(.92)',borderRadius:'38px'}],520,ease),
+        anim(dim,[{opacity:0},{opacity:.35}],520,ease)]);
+      dim.remove(); break; }
+    case 'unsheet': {
+      D.insertBefore(to, from); const dim=el('div','dim'); to.appendChild(dim);
+      await Promise.all([
+        anim(from,[{transform:'translateY(0)'},{transform:'translateY(100%)'}],460,ease),
+        anim(to,[{transform:'scale(.92)',borderRadius:'38px'},{transform:'scale(1)',borderRadius:'0px'}],460,ease),
+        anim(dim,[{opacity:.35},{opacity:0}],460,ease)]);
+      dim.remove(); break; }
+    case 'down': { // current slides away revealing the next screen underneath
+      D.insertBefore(to, from);
+      await anim(from,[{transform:'translateY(0)'},{transform:'translateY(100%)'}],520,ease); break; }
+    case 'sheetUp': { // sheet rises over the page; the page behind dims
+      const T = parts(to), layered = !!from.querySelector('.sheetL');
+      D.appendChild(to);
+      // identical backdrop already on screen; keep the new screen see-through so nothing flashes white
+      if (layered){ T.under.style.opacity=0; T.dim.style.opacity=0; to.style.background='transparent'; }
+      const top = topBand(T.sheet);
+      T.sheet.style.clipPath=`inset(${TOP(60)} 0 0 0)`;
+      const jobs = [
+        anim(top,[{opacity:0},{opacity:1}],380,'ease-out'),
+        anim(T.sheet,[{transform:'translateY(100%)'},{transform:'translateY(0)'}],540,ease)];
+      if (!layered) jobs.push(anim(T.dim,[{opacity:0},{opacity:.4}],540,ease));
+      if (T.back) jobs.push(anim(T.back,[{transform:'none'},{transform:BACK_ON()}],540,ease),
+                            anim(T.backDim,[{opacity:0},{opacity:.11}],540,ease));
+      await Promise.all(jobs);
+      T.under.style.opacity=''; T.dim.style.opacity=''; to.style.background=''; T.sheet.style.clipPath=''; top.remove(); break; }
+    case 'sheetDown': { // sheet drops away revealing what is underneath
+      const F = parts(from), layered = !!to.querySelector('.sheetL');
+      D.insertBefore(to, from);
+      F.under.style.opacity=0;
+      if (layered) F.dim.style.opacity=0;
+      const top = topBand(F.sheet);
+      F.sheet.style.clipPath=`inset(${TOP(60)} 0 0 0)`;
+      const jobs = [
+        anim(top,[{opacity:1},{opacity:0}],380,'ease-in'),
+        anim(F.sheet,[{transform:'translateY(0)'},{transform:'translateY(100%)'}],480,ease)];
+      if (!layered) jobs.push(anim(F.dim,[{opacity:.4},{opacity:0}],480,ease));
+      if (F.back) jobs.push(anim(F.back,[{transform:BACK_ON()},{transform:'none'}],480,ease),
+                            anim(F.backDim,[{opacity:.11},{opacity:0}],480,ease));
+      await Promise.all(jobs); break; }
+    case 'sheetPush': case 'sheetPop': { // navigation inside the sheet: content slides, the sheet itself stays
+      const T = parts(to), F = parts(from), push = t==='sheetPush';
+      const clip = `inset(${TOP(62)} 0 0 0 round 38px 38px 0 0)`;
+      if (push){ D.appendChild(to); T.under.style.opacity=0; T.dim.style.opacity=0; to.style.background='transparent'; }
+      else { D.insertBefore(to, from); F.under.style.opacity=0; F.dim.style.opacity=0; from.style.background='transparent'; }
+      T.sheet.style.clipPath = clip; F.sheet.style.clipPath = clip;
+      const slide = (layer, a, b, shadow) => [...layer.children].map(c => anim(c,
+        [{transform:`translateX(${a})`, ...(shadow?{filter:'drop-shadow(-8px 0 18px rgba(0,0,0,.12))'}:{})},
+         {transform:`translateX(${b})`, ...(shadow?{filter:'drop-shadow(-8px 0 18px rgba(0,0,0,0))'}:{})}], push?480:420, ease));
+      const dimIn = el('div','',{position:'absolute',inset:0,background:'#000',opacity:0,pointerEvents:'none'});
+      (push ? F.sheet : T.sheet).appendChild(dimIn);
+      await Promise.all([
+        ...(push ? slide(T.sheet,'100%','0',true) : slide(F.sheet,'0','100%',true)),
+        ...(push ? slide(F.sheet,'0','-30%') : slide(T.sheet,'-30%','0')),
+        anim(dimIn, push?[{opacity:0},{opacity:.08}]:[{opacity:.08},{opacity:0}], push?480:420, ease)]);
+      dimIn.remove(); T.sheet.style.clipPath=''; T.under.style.opacity=''; T.dim.style.opacity=''; to.style.background='';
+      break; }
+    case 'zoom': { // app launch from its icon
+      const h = from._lastTap || {x:195,y:422};
+      D.appendChild(to);
+      to.style.transformOrigin = `${h.x}px ${h.y}px`;
+      await Promise.all([
+        anim(to,[{transform:'scale(.16)',opacity:0,borderRadius:'90px'},{opacity:1,offset:.35},{transform:'scale(1)',opacity:1,borderRadius:'0px'}],520,'cubic-bezier(.2,.9,.25,1)'),
+        anim(from,[{transform:'scale(1)',filter:'blur(0)'},{transform:'scale(1.08)',filter:'blur(6px)'}],520,ease)]);
+      to.style.transformOrigin=''; break; }
+    default: { // fade / dissolve
+      D.appendChild(to);
+      await anim(to,[{opacity:0},{opacity:1}],320,'ease'); }
+  }
+  to.getAnimations({subtree:true}).forEach(a=>a.cancel());
+}
+
+async function go(id, t='push', opt={}){
+  if (busy) return; busy = true; clearTimers();
+  const cur = stack[stack.length-1];
+  const next = build(id);
+  if (cur){ await transition(cur.el, next, t); cur.el.remove(); }
+  else device.appendChild(next);
+  if (opt.reset) stack = opt.reset.map(r=>({id:r, t:'push'}));
+  else if (opt.replace) stack.pop();
+  stack.push({id, el:next, t});
+  busy = false; onEnter(id, next);
+}
+
+async function back(tOverride){
+  if (busy || stack.length<2) return; busy = true; clearTimers();
+  const cur = stack.pop(); const prev = stack[stack.length-1];
+  const t = tOverride || BACK_OF[cur.t] || 'pop';
+  prev.el = build(prev.id);
+  await transition(cur.el, prev.el, t);
+  cur.el.remove(); busy = false; onEnter(prev.id, prev.el);
+}
+
+function onEnter(id, scr){
+  const d = S[id];
+  setHomebar(d.bar);
+  if (d.auto) timers.push(setTimeout(()=>{ if(stack[stack.length-1].id===id) d.auto[1](); }, d.auto[0]));
+  try{ localStorage.setItem('tm-ap-proto', JSON.stringify({variant})); }catch(e){}
+  document.querySelectorAll('[data-start]').forEach(b=>b.classList.toggle('on',
+    (b.dataset.start==='W' && id.startsWith('w')) || (!id.startsWith('w') && id!=='test' && id!=='ios' && b.dataset.start===variant)));
+}
+function clearTimers(){ timers.forEach(clearTimeout); timers=[]; }
+
+// remember where the user tapped (for the app-launch zoom origin)
+device.addEventListener('pointerdown',e=>{
+  const r = device.getBoundingClientRect(), s = r.width/390;
+  const top = stack[stack.length-1]; if (top) top.el._lastTap = {x:(e.clientX-r.left)/s, y:(e.clientY-r.top)/s};
+}, true);
+
+// home indicator → back to iOS home screen
+const hb = el('div','homebar'); device.appendChild(hb);
+hb.addEventListener('click',e=>{ e.stopPropagation(); const cur=stack[stack.length-1]; if(!cur||cur.id==='ios'||cur.id==='test') return;
+  go('ios','fade',{reset:[]}); });
+function setHomebar(mode){ hb.classList.toggle('light', mode==='light'); device.appendChild(hb); }
+
+function start(which){
+  clearTimers(); busy=false; device.querySelectorAll('.screen').forEach(s=>s.remove()); stack=[];
+  if (which==='W'){ stack=[{id:'ios',t:'fade'}]; go('wEmpty','fade'); }
+  else if (which==='A'||which==='B'){ variant=which; stack=[{id:'ios',t:'fade'}]; go('home','fade'); }
+  else go('test','fade');
+}
+document.querySelectorAll('[data-start]').forEach(b=>b.onclick=()=>start(b.dataset.start));
+document.getElementById('restart').onclick=()=>start();
+
+addEventListener('keydown',e=>{
+  if (e.key==='Escape'||e.key==='ArrowLeft'||e.key==='Backspace' && !S[stack.at(-1)?.id]?.pin) back();
+  const cur = stack[stack.length-1]; if(!cur || !S[cur.id].pin) return;
+  const L = cur.el.querySelector('.sheetL') || cur.el.querySelector('.canvas');
+  if (/^[0-9]$/.test(e.key)) L._pinKey(e.key);
+});
+
+function fit(){
+  if (!innerWidth || !innerHeight) return;
+  let s, vh = 844;
+  const phone = innerWidth <= 600;
+  if (phone !== PHONE){ PHONE = phone; VH = -1; }
+  if (phone){ // phone: fill the width edge to edge; collapse empty bands to fit the height
+    s = innerWidth/390; vh = Math.round(innerHeight/s);
+    if (vh > 844){ s = innerHeight/844; vh = 844; }
+  } else s = Math.min(innerWidth/390, innerHeight/844);
+  document.documentElement.style.setProperty('--s', s);
+  document.documentElement.style.setProperty('--vh', vh);
+  if (vh !== VH){ VH = vh; relayout(); }
+}
+function relayout(){ // rebuild the visible screen for the new height
+  const cur = stack[stack.length-1]; if (!cur || !cur.el || busy) return;
+  const n = build(cur.id); cur.el.replaceWith(n); cur.el = n; device.appendChild(hb);
+}
+addEventListener('resize',fit); fit();
+
+// preload every asset so transitions never wait on the network
+Object.values(S).forEach(d=>{ const v=val(d.img); if(v) new Image().src=A+v; });
+['homeB-long.jpg','nav.png','pin-filled.jpg','w03.png','adding-spinner.gif','loading-spinner.gif','w10-check.gif'].forEach(f=>new Image().src=A+f);
+
+// full-screen toggle (shown only where the browser allows it)
+const fsBtn = document.getElementById('fs');
+const fsOk = document.fullscreenEnabled || document.webkitFullscreenEnabled;
+const fsPlace = ()=>{ // only where there is side margin, so it never covers the phone screen
+  const s = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--s'))||1;
+  fsBtn.classList.toggle('show', !!fsOk && innerWidth - 390*s > 130);
+};
+fsPlace(); addEventListener('resize', fsPlace);
+fsBtn.onclick = ()=>{
+  const d = document, el = d.documentElement;
+  if (d.fullscreenElement || d.webkitFullscreenElement) (d.exitFullscreen||d.webkitExitFullscreen).call(d);
+  else (el.requestFullscreen||el.webkitRequestFullscreen).call(el).catch?.(()=>{});
+};
+addEventListener('keydown',e=>{ if(e.key==='f'||e.key==='F') fsBtn.click(); });
+document.addEventListener('fullscreenchange', fit);
+
+start();
+</script>
+</body>
+</html>
