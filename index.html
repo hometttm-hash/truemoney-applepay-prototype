@@ -6,7 +6,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="robots" content="noindex,nofollow">
-<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>TrueMoney Apple Pay Prototype</title>
 <style>
 :root{
@@ -126,18 +126,18 @@ const S = {
     {x:24,y:176,w:342,h:80, act:()=>{variant='A'; go('ios','fade')}},
     {x:24,y:280,w:342,h:80, act:()=>{variant='B'; go('ios','fade')}},
   ]},
-  ios: { img:'ios.jpg', cut:[[470, 194]], soft:true, bar:'light', hot:[
+  ios: { light:true, img:'ios.jpg', cut:[[470, 194]], soft:true, bar:'light', hot:[
     {x:296,y:262,w:64,h:64, r:16, go:'home', t:'zoom'},
     {x:208,y:262,w:64,h:64, r:16, go:'wEmpty', t:'zoom'},
     {x:30, y:362,w:64,h:64, r:16, go:'test', t:'fade'},
   ]},
-  home: { img:()=> variant==='B' ? 'homeB-long.jpg' : 'homeA-long.jpg', h:2565, nav:true, bar:'dark', hot:[
+  home: { light:true, img:()=> variant==='B' ? 'homeB-long.jpg' : 'homeA-long.jpg', h:2565, nav:true, bar:'dark', hot:[
     {x:208,y:118,w:74,h:66, go:'intro', t:'push'},
     {x:22, y:396,w:80,h:80, go:'intro', t:'push'},
     {x:16, y:626,w:358,h:94, r:16, go:'intro', t:'push'},
     {x:340,y:58, w:40,h:40, go:'test', t:'fade'},
   ]},
-  intro: { img:'introA.jpg', cut:[[725, 115]], bar:'dark', hot:[
+  intro: { light:true, img:'introA.jpg', cut:[[725, 115]], bar:'dark', hot:[
     {x:8,y:58,w:44,h:40, back:true},
     {x:32,y:473,w:326,h:48, r:24, go:'pin', t:'sheet'},
   ]},
@@ -165,10 +165,10 @@ const S = {
     {x:8,y:58,w:44,h:40, act:()=>go('homeAfter','pop',{reset:[]})},
     {x:16,y:762,w:358,h:48, r:24, act:()=>go('provisioned','push',{reset:['homeAfter']})},
   ]},
-  provisioned: { img:'provisioned.jpg', h:1040, bar:'dark', hot:[
+  provisioned: { light:true, img:'provisioned.jpg', h:1040, bar:'dark', hot:[
     {x:8,y:58,w:44,h:40, back:true},
   ]},
-  homeAfter: { img:'homeAfter-long.jpg', h:2525, nav:true, bar:'dark', hot:[
+  homeAfter: { light:true, img:'homeAfter-long.jpg', h:2525, nav:true, bar:'dark', hot:[
     {x:208,y:118,w:74,h:66, go:'provisioned', t:'push'},
     {x:22, y:396,w:80,h:80, go:'provisioned', t:'push'},
     {x:16, y:626,w:358,h:56, r:16, go:'provisioned', t:'push'},
@@ -227,6 +227,8 @@ function el(tag, cls, css){ const e=document.createElement(tag); if(cls) e.class
 const px = v => v+'px';
 const box = o => ({left:px(o.x),top:px(o.y),width:px(o.w),height:px(o.h)});
 let MAP = y => y;   // Figma y → on-screen y for the screen being built
+// Opened from the Home Screen: the page runs under the phone's real (white-text) status bar
+const STANDALONE = matchMedia('(display-mode: standalone)').matches || navigator.standalone === true || /[?&]standalone/.test(location.search);
 const SB = 47;       // height of the mock iOS status bar baked into every screen
 let PHONE = false;  // on a real phone the device shows its own clock/battery, so the mock bar is dropped
 const sbCut = () => PHONE ? Math.min(SB, Math.max(0, 844 - VH)) : 0;  // only as much as the screen is short
@@ -259,6 +261,25 @@ function art(src, p, H, soft, srcH = 844){ // the screen image with the collapse
   return w;
 }
 const val = v => typeof v==='function' ? v() : v;
+// Under the real status bar: hide the mock 9:41 bar by mirroring the strip just below it (seamless at the join)
+function statusMask(src, srcH = 844){
+  // a thin strip (8pt) right below the mock bar, stretched up and mirrored so it meets the content without a seam
+  const k = SB/8;
+  const m = el('div','ov',{left:0,top:0,width:'390px',height:px(SB),overflow:'hidden'});
+  m.appendChild(el('div','',{width:'390px',height:px(SB),transform:'scaleY(-1)',
+    background:`url(${A}${src}) 0 ${-SB*k}px/390px ${srcH*k}px no-repeat`}));
+  return m;
+}
+// On light screens the phone's white clock would vanish, so draw a dark live clock where the mock one was
+const clockFmt = new Intl.DateTimeFormat([], {hour:'numeric', minute:'2-digit', hourCycle:'h23'});
+const clockText = () => clockFmt.format(new Date());
+function liveClock(src){
+  const c = el('div','ov clock',{left:'28px',top:'10px',width:'80px',height:'30px',
+    background:`url(${A}${src}) 0 -38px/390px 844px repeat-y`,
+    font:'600 17px/30px -apple-system,BlinkMacSystemFont,"SF Pro Text",sans-serif',color:'#000',textAlign:'center',letterSpacing:'-.2px'});
+  c.textContent = clockText(); return c;
+}
+setInterval(()=>document.querySelectorAll('.clock').forEach(c=>c.textContent=clockText()), 15000);
 
 function optionC(canvas){
   // Extra entry on the test screen for the Wallet flow (styled like Option A/B)
@@ -278,6 +299,7 @@ function build(id){
   let L = cv;
   if (d.sheet){
     const under = art(walletBase, P, H); under.classList.add('under'); cv.appendChild(under);
+    if (STANDALONE && !sbCut()) cv.appendChild(statusMask(walletBase));
     cv.appendChild(el('div','sdim'));
     if (d.stackOn){ // the previous sheet stays live behind, pushed back like iOS stacked sheets
       const bk = el('div','backL'); const bi = art(S[d.stackOn].img, P, H);
@@ -287,6 +309,10 @@ function build(id){
   }
   const img = art(val(d.img), P, H, d.soft, d.h || 844); L.appendChild(img);
   if (d.stackOn) img.style.clipPath = `inset(${TOP(62)} 0 0 0)`; // keep only the front sheet from the export
+  if (STANDALONE && !sbCut() && !d.sheet){
+    if (d.light) L.appendChild(statusMask(val(d.img), d.h || 844));
+    else L.appendChild(liveClock(val(d.img)));
+  }
   if (val(d.nav)) { // floating bottom navigation stays put while the page scrolls
     const blur = el('div','ov',{left:0,top:px(VH-84),width:'390px',height:'84px',zIndex:5,
       backdropFilter:'blur(14px)',webkitBackdropFilter:'blur(14px)',
@@ -495,7 +521,7 @@ device.addEventListener('pointerdown',e=>{
 const hb = el('div','homebar'); device.appendChild(hb);
 hb.addEventListener('click',e=>{ e.stopPropagation(); const cur=stack[stack.length-1]; if(!cur||cur.id==='ios'||cur.id==='test') return;
   go('ios','fade',{reset:[]}); });
-function setHomebar(mode){ hb.classList.toggle('light', mode==='light'); device.appendChild(hb); }
+function setHomebar(mode){ hb.classList.toggle('light', mode==='light'); if (STANDALONE) hb.style.background='transparent'; device.appendChild(hb); }
 
 function start(which){
   clearTimers(); busy=false; device.querySelectorAll('.screen').forEach(s=>s.remove()); stack=[];
