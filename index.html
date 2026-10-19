@@ -68,6 +68,9 @@ html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);
 .homebar.light{background:rgba(255,255,255,.9)}
 .homebar::before{content:"";position:absolute;inset:-14px -20px}
 
+@media (max-width:600px){
+  html,body{background:#fff}
+}
 @media (max-width:520px){
   .stage{padding:0;gap:0;justify-content:flex-start}
   .bar,.hint{display:none}
@@ -556,7 +559,16 @@ addEventListener('keydown',e=>{
 
 function fit(){
   // measure the full-screen stage, not innerHeight (iOS Home Screen apps report it short by the status bar)
-  const r = document.querySelector('.stage').getBoundingClientRect();
+  const stage = document.querySelector('.stage');
+  if (STANDALONE){
+    // Home Screen apps on iOS get a viewport shorter than the screen (the strip under the home indicator
+    // is left empty), so size the stage to the physical screen and paint all of it
+    const portrait = innerHeight >= innerWidth;
+    const full = portrait ? Math.max(screen.width, screen.height) : Math.min(screen.width, screen.height);
+    if (full > innerHeight){ stage.style.bottom = 'auto'; stage.style.height = full + 'px';
+      document.documentElement.style.height = document.body.style.height = full + 'px'; }
+  }
+  const r = stage.getBoundingClientRect();
   const W = r.width || innerWidth, Hs = r.height || innerHeight;
   if (!W || !Hs) return;
   let s, vh = 844;
