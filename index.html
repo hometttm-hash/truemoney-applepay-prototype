@@ -6,6 +6,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="robots" content="noindex,nofollow">
+<meta name="theme-color" content="#ffffff" id="themeColor">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>TrueMoney Apple Pay Prototype</title>
 <style>
@@ -59,6 +60,9 @@ html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);
 .pop>div{width:100%;height:100%;background-repeat:no-repeat;animation:pop .6s cubic-bezier(.34,1.56,.64,1) both .1s}
 @keyframes pop{from{transform:scale(.3);opacity:0}to{transform:scale(1);opacity:1}}
 .dim{position:absolute;inset:0;background:#000;pointer-events:none;opacity:0}
+.scanline{position:absolute;top:12px;height:2px;border-radius:1px;background:#fff;
+  box-shadow:0 0 8px 2px rgba(255,90,0,.75),0 0 24px 8px rgba(255,90,0,.35);animation:scanSweep 2.2s ease-in-out infinite;will-change:transform;backface-visibility:hidden}
+@keyframes scanSweep{0%{transform:translate3d(0,0,0);opacity:0}12%{opacity:1}88%{opacity:1}100%{transform:translate3d(0,var(--travel),0);opacity:0}}
 .sdim{position:absolute;inset:0;background:#000;opacity:.4;pointer-events:none}
 .sheetL{position:absolute;inset:0}
 .backL{position:absolute;inset:0;transform-origin:50% 0}
@@ -70,7 +74,11 @@ html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);
 
 @media (max-width:600px){
   html,body{background:#fff}
+  .stage{top:0;bottom:0;background:transparent}
+  .device{background:transparent}
 }
+.safe{display:none}
+.sbar{position:absolute;left:0;top:0;width:390px;z-index:7;pointer-events:none;background-repeat:no-repeat}
 @media (max-width:520px){
   .stage{padding:0;gap:0;justify-content:flex-start}
   .bar,.hint{display:none}
@@ -89,6 +97,7 @@ html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);
 <button class="fs" id="fs" title="เต็มจอ" aria-label="เต็มจอ">
   <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M1 6V1h5M12 1h5v5M17 12v5h-5M6 17H1v-5"/></svg>
 </button>
+<div class="safe top" id="safeTop"></div><div class="safe bot" id="safeBot"></div>
 <div class="stage">
   <div class="bar" id="bar">
     <button class="chip" data-start="A">Option A · ชั้นสีส้ม</button>
@@ -135,6 +144,9 @@ const S = {
     {x:30, y:362,w:64,h:64, r:16, go:'test', t:'fade'},
   ]},
   home: { light:true, img:()=> variant==='B' ? 'homeB-long.jpg' : 'homeA-long.jpg', h:2565, nav:true, bar:'dark', hot:[
+    {x:25, y:118,w:74,h:66, go:'transfer', t:'push'},
+    {x:113,y:118,w:74,h:66, go:'receive', t:'push'},
+    {x:291,y:118,w:74,h:66, go:'pay', t:'push'},
     {x:208,y:118,w:74,h:66, go:'intro', t:'push'},
     {x:22, y:396,w:80,h:80, go:'intro', t:'push'},
     {x:16, y:626,w:358,h:94, r:16, go:'intro', t:'push'},
@@ -172,10 +184,29 @@ const S = {
     {x:8,y:58,w:44,h:40, back:true},
   ]},
   homeAfter: { light:true, img:'homeAfter-long.jpg', h:2525, nav:true, bar:'dark', hot:[
+    {x:25, y:118,w:74,h:66, go:'transfer', t:'push'},
+    {x:113,y:118,w:74,h:66, go:'receive', t:'push'},
+    {x:291,y:118,w:74,h:66, go:'pay', t:'push'},
     {x:208,y:118,w:74,h:66, go:'provisioned', t:'push'},
     {x:22, y:396,w:80,h:80, go:'provisioned', t:'push'},
     {x:16, y:626,w:358,h:56, r:16, go:'provisioned', t:'push'},
     {x:340,y:58, w:40,h:40, go:'test', t:'fade'},
+  ]},
+
+  // ——— Home quick actions ———
+  pay: { img:'pay.jpg', cut:[[705, 40]], bar:'dark', hot:[
+    {x:8,y:58,w:44,h:40, back:true},
+    {x:0,y:752,w:195,h:80, r:0, act:()=>go('scan','fade',{replace:true})},
+  ]},
+  scan: { img:'scan.jpg', cut:[[300, 250]], bar:'light', hot:[
+    {x:8,y:58,w:44,h:40, back:true},
+    {x:195,y:752,w:195,h:80, r:0, act:()=>go('pay','fade',{replace:true})},
+  ]},
+  receive: { img:'receive.jpg', cut:[[560, 250]], soft:true, bar:'dark', hot:[
+    {x:8,y:58,w:44,h:40, back:true},
+  ]},
+  transfer: { img:'transfer.jpg', cut:[[590, 230]], soft:true, bar:'dark', hot:[
+    {x:8,y:58,w:44,h:40, back:true},
   ]},
 
   // ——— Apple Wallet (in-wallet provisioning) ———
@@ -223,7 +254,8 @@ const S = {
 const device = document.getElementById('device');
 let stack = [];          // [{id, el}]
 let busy = false, timers = [];
-let VH = 844;           // logical viewport height in Figma points
+let VH = 844;           // logical height of the app area in Figma points (below the phone's status bar)
+let TOPPAD = 0;         // the phone's status-bar height in Figma points (each screen paints its own strip there)
 const BACK_OF = { push:'pop', sheet:'unsheet', sheetUp:'sheetDown', sheetPush:'sheetPop', zoom:'fade', fade:'fade', down:'fade' };
 
 function el(tag, cls, css){ const e=document.createElement(tag); if(cls) e.className=cls; if(css) Object.assign(e.style,css); return e; }
@@ -234,12 +266,13 @@ let MAP = y => y;   // Figma y → on-screen y for the screen being built
 const STANDALONE = matchMedia('(display-mode: standalone)').matches || navigator.standalone === true || /[?&]standalone/.test(location.search);
 const SB = 47;       // height of the mock iOS status bar baked into every screen
 let PHONE = false;  // on a real phone the device shows its own clock/battery, so the mock bar is dropped
-const sbCut = () => 0;  // keep the status-bar spacing from Figma; on phones only its contents are hidden
+// on phones the page starts below the real status bar (iOS paints that strip itself), so drop the mock one
+const sbCut = () => PHONE ? SB : 0;
 const TOP = v => px(v - sbCut());   // y of things above any collapsible band (sheet tops)
 function plan(d){   // which empty bands to collapse so the screen fits VH
   const sb = sbCut(), out = sb ? [{y:0, len:sb}] : [];
   let left = d.h ? 0 : Math.max(0, 844 - sb - VH);
-  if (!d.h && VH > 844 && d.cut && d.cut.length){ out.push({y:d.grow ?? d.cut[0][0], len:844 - VH}); return out; } // negative = insert
+  if (!d.h && VH > 844 - sb && d.cut && d.cut.length){ out.push({y:d.grow ?? (d.cut[0][0] + Math.min(40, d.cut[0][1]/2)), len:844 - sb - VH}); return out; } // negative = insert
   for (const [y, max] of (d.cut||[])){ const len = Math.min(max, left); if (len>0){ out.push({y, len}); left -= len; } }
   return out;
 }
@@ -315,7 +348,6 @@ function build(id){
   let L = cv;
   if (d.sheet){
     const under = art(walletBase, P, H); under.classList.add('under'); cv.appendChild(under);
-    if (PHONE) cv.appendChild(statusMask(walletBase));
     cv.appendChild(el('div','sdim'));
     if (d.stackOn){ // the previous sheet stays live behind, pushed back like iOS stacked sheets
       const bk = el('div','backL'); const bi = art(S[d.stackOn].img, P, H);
@@ -325,13 +357,15 @@ function build(id){
   }
   const img = art(val(d.img), P, H, d.soft, d.h || 844); L.appendChild(img);
   if (d.stackOn) img.style.clipPath = `inset(${TOP(62)} 0 0 0)`; // keep only the front sheet from the export
-  if (PHONE && !d.sheet) L.appendChild(statusMask(val(d.img), d.h || 844)); // the phone shows its own clock/battery here
   if (val(d.nav)) { // floating bottom navigation stays put while the page scrolls
-    const blur = el('div','ov',{left:0,top:px(VH-84),width:'390px',height:'84px',zIndex:5,
+    const blur = el('div','ov',{left:0,top:px(TOPPAD+VH-84),width:'390px',height:'84px',zIndex:5,
       backdropFilter:'blur(14px)',webkitBackdropFilter:'blur(14px)',
       maskImage:'linear-gradient(transparent,#000 45%)',webkitMaskImage:'linear-gradient(transparent,#000 45%)'});
-    const nav = el('img','ov',{left:0,top:px(VH-160),width:'390px',height:'160px',zIndex:6}); nav.src=A+'nav.png'; nav.alt='';
+    const nav = el('img','ov',{left:0,top:px(TOPPAD+VH-160),width:'390px',height:'160px',zIndex:6}); nav.src=A+'nav.png'; nav.alt='';
     scr.appendChild(blur); scr.appendChild(nav);
+    const scanHot = el('div','hot',{left:'165px',top:px(TOPPAD+VH-160+66),width:'60px',height:'60px',borderRadius:'30px',zIndex:7});
+    scanHot.addEventListener('click',e=>{ e.stopPropagation(); if(!busy) go('scan','push'); });
+    scr.appendChild(scanHot);
   }
   (d.ov||[]).forEach(o=>{
     if (o.spin){ // rotate the spinner already drawn in the screen itself, so it blends with the button
@@ -340,12 +374,20 @@ function build(id){
       return;
     }
     const g=el('img','ov',boxM(o)); g.src=A+o.gif+(o.once?'?t='+Date.now():''); L.appendChild(g); }); // once: replay from the first frame each visit
+  if (d.scanner){ // Figma plays a video here (a scan line sweeping the camera area); recreate it
+    const r = d.scanner, top = MAP(r.y), hgt = MAP(r.y + r.h) - top;
+    const area = el('div','ov',{left:px(r.x),top:px(top),width:px(r.w),height:px(hgt),background:'rgb(136,134,135)',overflow:'hidden'});
+    const line = el('div','scanline',{left:'17.4px',width:'321.5px'});
+    line.style.setProperty('--travel', px(hgt - 24));
+    line.style.animationDelay = `-${Math.round(performance.now() % 2200)}ms`;
+    area.appendChild(line); L.appendChild(area);
+  }
   if (d.pop){ const p=el('div','ov pop',boxM(d.pop)); const i=el('div','',{background:`url(${A}${val(d.img)}) ${-d.pop.x}px ${-d.pop.y}px/390px 844px no-repeat`}); p.appendChild(i); cv.appendChild(p); }
   // pinBottom: if the screen still overflows, keep its bottom action area fixed and let the rest scroll
   let pinned = null;
   if (d.pinBottom && H > VH){
     const ph = 844 - d.pinBottom;
-    pinned = el('div','',{position:'absolute',left:0,top:px(VH-ph),width:'390px',height:px(ph),zIndex:4,
+    pinned = el('div','',{position:'absolute',left:0,top:px(TOPPAD+VH-ph),width:'390px',height:px(ph),zIndex:4,
       background:`url(${A}${val(d.img)}) 0 ${-d.pinBottom}px/390px 844px no-repeat`});
     scr.appendChild(pinned); cv.style.height = px(d.pinBottom + 20);
   }
@@ -360,6 +402,20 @@ function build(id){
   if (d.extra) d.extra(cv);
   cv.addEventListener('click',()=>{ cv.classList.remove('flash'); void cv.offsetWidth; cv.classList.add('flash'); });
   sc.appendChild(cv); scr.appendChild(sc);
+  if (TOPPAD){
+    sc.style.top = px(TOPPAD);
+    const bar = el('div','sbar',{height:px(TOPPAD)}), h = TOPPAD, row = SB + 1;
+    if (d.sheet){ // dimmed page behind the sheet
+      bar.style.backgroundImage = `linear-gradient(rgba(0,0,0,.4),rgba(0,0,0,.4)), url(${A}${walletBase})`;
+      bar.style.backgroundSize = `100% 100%, 390px ${844*h}px`; bar.style.backgroundPosition = `0 0, 0 ${-row*h}px`;
+      bar.dataset.dim = '1';
+    } else {
+      const srcH = d.h || 844;
+      bar.style.backgroundImage = `url(${A}${val(d.img)})`;
+      bar.style.backgroundSize = `390px ${srcH*h}px`; bar.style.backgroundPosition = `0 ${-row*h}px`;
+    }
+    scr.appendChild(bar);
+  }
   return scr;
 }
 
@@ -442,7 +498,9 @@ async function transition(from, to, t){
       const jobs = [
         anim(top,[{opacity:0},{opacity:1}],380,'ease-out'),
         anim(T.sheet,[{transform:'translateY(100%)'},{transform:'translateY(0)'}],540,ease)];
-      if (!layered) jobs.push(anim(T.dim,[{opacity:0},{opacity:.4}],540,ease));
+      if (!layered){ jobs.push(anim(T.dim,[{opacity:0},{opacity:.4}],540,ease));
+        const tb = to.querySelector('.sbar'), fb = from.querySelector('.sbar');
+        if (tb && fb){ to.querySelector('.scroll').before(fb.cloneNode()); jobs.push(anim(tb,[{opacity:0},{opacity:1}],540,ease)); } }
       if (T.back) jobs.push(anim(T.back,[{transform:'none'},{transform:BACK_ON()}],540,ease),
                             anim(T.backDim,[{opacity:0},{opacity:.11}],540,ease));
       await Promise.all(jobs);
@@ -450,14 +508,15 @@ async function transition(from, to, t){
     case 'sheetDown': { // sheet drops away revealing what is underneath
       const F = parts(from), layered = !!to.querySelector('.sheetL');
       D.insertBefore(to, from);
-      F.under.style.opacity=0;
+      F.under.style.opacity=0; from.style.background='transparent';
       if (layered) F.dim.style.opacity=0;
       const top = topBand(F.sheet);
       F.sheet.style.clipPath=`inset(${TOP(60)} 0 0 0)`;
       const jobs = [
         anim(top,[{opacity:1},{opacity:0}],380,'ease-in'),
         anim(F.sheet,[{transform:'translateY(0)'},{transform:'translateY(100%)'}],480,ease)];
-      if (!layered) jobs.push(anim(F.dim,[{opacity:.4},{opacity:0}],480,ease));
+      if (!layered){ jobs.push(anim(F.dim,[{opacity:.4},{opacity:0}],480,ease));
+        const fb = from.querySelector('.sbar'); if (fb) jobs.push(anim(fb,[{opacity:1},{opacity:0}],480,ease)); }
       if (F.back) jobs.push(anim(F.back,[{transform:BACK_ON()},{transform:'none'}],480,ease),
                             anim(F.backDim,[{opacity:.11},{opacity:0}],480,ease));
       await Promise.all(jobs); break; }
@@ -514,9 +573,35 @@ async function back(tOverride){
   cur.el.remove(); busy = false; onEnter(prev.id, prev.el);
 }
 
+// iOS paints the strips above and below the page (status bar, home indicator) with the page colour:
+// match them to the top and bottom of the current screen so the phone looks like one solid app
+const topColors = {};
+function sampleTop(src, dim, y = SB + 4){
+  const key = src + dim + '@' + y; if (topColors[key]) return Promise.resolve(topColors[key]);
+  return new Promise(res=>{
+    const img = new Image(); img.onload = ()=>{
+      try{
+        const c = document.createElement('canvas'); c.width = c.height = 1;
+        const k = img.naturalWidth/390;
+        c.getContext('2d').drawImage(img, 20*k, y*k, 1, 1, 0, 0, 1, 1);
+        const [r,g,b] = c.getContext('2d').getImageData(0,0,1,1).data, f = 1 - dim;
+        res(topColors[key] = `rgb(${Math.round(r*f)},${Math.round(g*f)},${Math.round(b*f)})`);
+      }catch(e){ res('#ffffff'); }
+    };
+    img.onerror = ()=>res('#ffffff'); img.src = A+src;
+  });
+}
+async function tintTop(d){
+  if (!PHONE) return;
+  const top = d.sheet ? await sampleTop(walletBase, .4) : await sampleTop(val(d.img), 0);
+  document.documentElement.style.background = document.body.style.background = top;
+  document.getElementById('themeColor').setAttribute('content', top);
+}
+
 function onEnter(id, scr){
   const d = S[id];
   setHomebar(d.bar);
+  tintTop(d);
   if (d.auto) timers.push(setTimeout(()=>{ if(stack[stack.length-1].id===id) d.auto[1](); }, d.auto[0]));
   try{ localStorage.setItem('tm-ap-proto', JSON.stringify({variant})); }catch(e){}
   document.querySelectorAll('[data-start]').forEach(b=>b.classList.toggle('on',
@@ -555,36 +640,51 @@ addEventListener('keydown',e=>{
 function fit(){
   // measure the full-screen stage, not innerHeight (iOS Home Screen apps report it short by the status bar)
   const stage = document.querySelector('.stage');
-  if (STANDALONE){
-    // Home Screen apps on iOS get a viewport shorter than the screen (the strip under the home indicator
-    // is left empty), so size the stage to the physical screen and paint all of it
-    const portrait = innerHeight >= innerWidth;
-    const full = portrait ? Math.max(screen.width, screen.height) : Math.min(screen.width, screen.height);
-    if (full > innerHeight){ stage.style.bottom = 'auto'; stage.style.height = full + 'px';
-      document.documentElement.style.height = document.body.style.height = full + 'px'; }
+  const sTop = document.getElementById('safeTop'), sBot = document.getElementById('safeBot');
+  // read the safe-area insets fresh each time (iOS fills them in a moment after launch)
+  const probe = el('div','',{position:'absolute',visibility:'hidden',paddingTop:'env(safe-area-inset-top)',paddingBottom:'env(safe-area-inset-bottom)'});
+  document.body.appendChild(probe); const pcs = getComputedStyle(probe);
+  let st = window.__fakeTop ?? (parseFloat(pcs.paddingTop) || 0), sb = parseFloat(pcs.paddingBottom) || 0; probe.remove();  // __fakeTop: desktop testing only
+  const portrait = innerHeight >= innerWidth;
+  const screenH = portrait ? Math.max(screen.width, screen.height) : Math.min(screen.width, screen.height);
+  const full = Math.max(innerHeight, outerHeight || 0, STANDALONE ? screenH : 0);
+  // iOS Home Screen apps get a page area shorter than the screen (by the status bar) and can't paint pinned
+  // (fixed) layers into the missing bottom strip; size the document to the whole screen and place the app
+  // as a normal layer so it reaches the bottom edge
+  if (innerWidth <= 600 && STANDALONE && full > innerHeight + 10){
+    if (!st) st = full - innerHeight;              // insets not reported yet: use the status-bar gap
+    sb = 0;  // the app itself runs under the home indicator (Figma frames include that space)
+    const hs = document.documentElement.style, bs = document.body.style;
+    hs.height = bs.height = full + 'px'; hs.overflow = bs.overflow = 'hidden'; hs.overscrollBehavior = 'none';
+    Object.assign(stage.style, {position:'absolute', top: 0, bottom: 'auto', left: 0, right: 0, height: full + 'px'});
   }
+  fit.info = {innerW: innerWidth, innerH: innerHeight, screenH, safeTop: st, safeBot: sb, standalone: STANDALONE};
   const r = stage.getBoundingClientRect();
   const W = r.width || innerWidth, Hs = r.height || innerHeight;
   if (!W || !Hs) return;
   let s, vh = 844;
   const phone = W <= 600;
   if (phone !== PHONE){ PHONE = phone; VH = -1; }
+  let pad = 0;
   if (phone){ // phone: fill the screen edge to edge; empty bands shrink or grow to fit the height
-    s = W/390; vh = Math.round(Hs/s);
+    s = W/390; pad = st / s; vh = Math.round(Hs/s - pad);
   } else s = Math.min(W/390, Hs/844);
   document.documentElement.style.setProperty('--s', s);
-  document.documentElement.style.setProperty('--vh', vh);
-  if (vh !== VH){ VH = vh; relayout(); }
+  document.documentElement.style.setProperty('--vh', vh + pad);
+  if (vh !== VH || Math.abs(pad - TOPPAD) > .5){ VH = vh; TOPPAD = pad; relayout(); }
 }
 function relayout(){ // rebuild the visible screen for the new height
   const cur = stack[stack.length-1]; if (!cur || !cur.el || busy) return;
   const n = build(cur.id); cur.el.replaceWith(n); cur.el = n; device.appendChild(hb);
 }
 addEventListener('resize',fit); window.visualViewport?.addEventListener('resize',fit); fit();
+addEventListener('load', fit); setTimeout(fit, 400); setTimeout(fit, 1500);  // insets can arrive late
+
+
 
 // preload every asset so transitions never wait on the network
 Object.values(S).forEach(d=>{ const v=val(d.img); if(v) new Image().src=A+v; });
-['homeB-long.jpg','nav.png','pin-filled.jpg','w03.png','adding-spinner.gif','loading-spinner.gif','w10-check.gif'].forEach(f=>new Image().src=A+f);
+['homeB-long.jpg','nav.png','pin-filled.jpg','w03.png','adding-spinner.gif','loading-spinner.gif','w10-check.gif','pay.jpg','scan.jpg','receive.jpg','transfer.jpg'].forEach(f=>new Image().src=A+f);
 
 // full-screen toggle (shown only where the browser allows it)
 const fsBtn = document.getElementById('fs');
